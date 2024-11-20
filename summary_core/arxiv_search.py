@@ -24,16 +24,13 @@ import sys
 
 from llama_cpp import Llama
 
-openai.base_url = "https://free.gpt.ge/v1/"
-
-
 class Paper:
     def __init__(self, path, title="", url="", abs="", authers=[]):
-        
-        self.url = url  
-        self.path = path  #
-        self.section_names = []  #
-        self.section_texts = {}  # 
+        # 初始化函数，根据pdf路径初始化Paper对象
+        self.url = url  # 文章链接
+        self.path = path  # pdf路径
+        self.section_names = []  # 段落标题
+        self.section_texts = {}  # 段落内容
         self.abs = abs
         self.title_page = 0
         self.title = title
@@ -77,6 +74,12 @@ class Paper:
         return first_page_text
 
     def get_image_path(self, image_path=""):
+        """
+        将PDF中的第一张图保存到image.png里面，存到本地目录，返回文件名称，供gitee读取
+        :param filename: 图片所在路径，"C:\\Users\\Administrator\\Desktop\\nwd.pdf"
+        :param image_path: 图片提取后的保存路径
+        :return:
+        """
         # open file
         max_size = 0
         image_list = []
@@ -335,7 +338,6 @@ class Paper:
 
 # 定义Reader类
 class Reader:
-    # 初始化方法，设置属性
     def __init__(
         self,
         key_word,
@@ -364,7 +366,11 @@ class Reader:
         # 读取配置文件
         self.config.read("apikey.ini")
         OPENAI_KEY = os.environ.get("OPENAI_KEY", "")
-        # 获取某个键对应的值   
+        # 获取某个键对应的值
+
+        self.chat_api_list = []
+
+        # prevent short strings from being incorrectly used as API keys.
         self.chat_api_list = [
             api.strip() for api in self.chat_api_list if len(api) > 20
         ]
@@ -475,7 +481,7 @@ class Reader:
         path = (
             self.root_path
             + "pdf_files/"
-            + self.validateTitle(self.args.query)
+            + self.validateTitle(self.args.query)[:10]
             + "-"
             + date_str
         )
@@ -483,7 +489,7 @@ class Reader:
             os.makedirs(path)
         except:
             pass
-        filename = os.path.join(path, self.validateTitle(title)[:80] + ".pdf")
+        filename = os.path.join(path, self.validateTitle(title)[:10] + ".pdf")
         with open(filename, "wb") as f:  # open a file with write and binary mode
             f.write(response.content)  # write the content of the response to the file
         return filename
@@ -529,20 +535,276 @@ class Reader:
                         text=text, summary_prompt_token=summary_prompt_token
                     )
 
-            htmls.append("## Paper:" + str(paper_index + 1))
+            htmls.append("## Paper:" + paper.title)
             htmls.append("\n\n\n")
             if "chat_summary_text" in locals():
                 htmls.append(chat_summary_text)
 
-            return "\n".join(htmls)
+            # 第二步总结方法：
+            # TODO，由于有些文章的方法章节名是算法名，所以简单的通过关键词来筛选，很难获取，后面需要用其他的方案去优化。
+           
+            method_key = ""
+            for parse_key in paper.section_text_dict.keys():
+                if "method" in parse_key.lower() or "approach" in parse_key.lower():
+                    method_key = parse_key
+                    break
+                
+            chat_method_text = ""
+            if method_key != "":
+                text = ""
+                method_text = ""
+                summary_text = ""
+                summary_text += "<summary>" + chat_summary_text
+                # methods
+                method_text += paper.section_text_dict[method_key]
+                text = summary_text + "\n\n<Methods>:\n\n" + method_text
+                # chat_method_text = self.chat_method(text=text)
+                try:
+                    chat_method_text = self.chat_method(text=text)
+                except Exception as e:
+                    print("method_error:", e)
+                    exc_type, exc_obj, exc_tb = sys.exc_info()
+                    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+                    print(exc_type, fname, exc_tb.tb_lineno)
+                    if "maximum context" in str(e):
+                        current_tokens_index = (
+                            str(e).find("your messages resulted in")
+                            + len("your messages resulted in")
+                            + 1
+                        )
+                        offset = int(
+                            str(e)[current_tokens_index : current_tokens_index + 4]
+                        )
+                        method_prompt_token = offset + 800 + 150
+                        chat_method_text = self.chat_method(
+                            text=text, method_prompt_token=method_prompt_token
+                        )
+
+                if "chat_method_text" in locals():
+                    htmls.append(chat_method_text)
+                # htmls.append(chat_method_text)
+            else:
+                chat_method_text = ""
+            htmls.append("\n" * 4)
+
+            # 第三步总结全文，并打分：
+            conclusion_key = ""
+            for parse_key in paper.section_text_dict.keys():
+                if "conclu" in parse_key.lower():
+                    conclusion_key = parse_key
+                    break
+
+            text = ""
+            conclusion_text = ""
+            summary_text = ""
+            summary_text += (
+                "<summary>"
+                + chat_summary_text
+                + "\n <Method summary>:\n"
+                + chat_method_text
+            )
+            chat_conclusion_text = ""
+            if conclusion_key != "":
+                # conclusion
+                conclusion_text += paper.section_text_dict[conclusion_key]
+                text = summary_text + "\n\n<Conclusion>:\n\n" + conclusion_text
+            else:
+                text = summary_text
+            # chat_conclusion_text = self.chat_conclusion(text=text)
+            try:
+                chat_conclusion_text = self.chat_conclusion(text=text)
+            except Exception as e:
+                print("conclusion_error:", e)
+                exc_type, exc_obj, exc_tb = sys.exc_info()
+                fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+                print(exc_type, fname, exc_tb.tb_lineno)
+                if "maximum context" in str(e):
+                    current_tokens_index = (
+                        str(e).find("your messages resulted in")
+                        + len("your messages resulted in")
+                        + 1
+                    )
+                    offset = int(
+                        str(e)[current_tokens_index : current_tokens_index + 4]
+                    )
+                    conclusion_prompt_token = offset + 1000 + 1000
+                    chat_conclusion_text = self.chat_conclusion(
+                        text=text, conclusion_prompt_token=conclusion_prompt_token
+                    )
+            if "chat_conclusion_text" in locals():
+                htmls.append(chat_conclusion_text)
+            htmls.append("\n" * 4)
+
+            # # 整合成一个文件，打包保存下来。
+            date_str = str(datetime.datetime.now())[:13].replace(" ", "-")
+            export_path = os.path.join(self.root_path, "export")
+            if not os.path.exists(export_path):
+                os.makedirs(export_path)
+            mode = "w" if paper_index == 0 else "a"
+            file_name = os.path.join(
+                export_path,
+                date_str
+                + "-"
+                + self.validateTitle(self.query)
+                + "."
+                + self.file_format,
+            )
+            self.export_to_markdown("\n".join(htmls), file_name=file_name, mode=mode)
+            htmls = self.translate_text("\n".join(htmls))
+            return htmls
 
     @tenacity.retry(
         wait=tenacity.wait_exponential(multiplier=1, min=4, max=10),
         stop=tenacity.stop_after_attempt(5),
         reraise=True,
     )
-   
+    def chat_conclusion(self, text, conclusion_prompt_token=800):
+        openai.api_key = self.chat_api_list[self.cur_api]
+        self.cur_api += 1
+        self.cur_api = (
+            0 if self.cur_api >= len(self.chat_api_list) - 1 else self.cur_api
+        )
+        text_token = len(self.encoding.encode(text))
+        clip_text_index = int(
+            len(text) * (self.max_token_num - conclusion_prompt_token) / text_token
+        )
+        clip_text = text[:clip_text_index]
 
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a reviewer in the field of ["
+                + self.key_word
+                + "] and you need to critically review this article",
+            },
+            # chatgpt 角色
+            {
+                "role": "assistant",
+                "content": "This is the <summary> and <conclusion> part of an English literature, where <summary> you have already summarized, but <conclusion> part, I need your help to summarize the following questions:"
+                + clip_text,
+            },
+            # 背景知识，可以参考OpenReview的审稿流程
+            {
+                "role": "user",
+                "content": """                 
+                 7. Make the following summary.Be sure to use {} answers (proper nouns need to be marked in English).
+                    - (1):What is the significance of this piece of work?
+                    - (2):Summarize the strengths and weaknesses of this article in three dimensions: innovation point, performance, and workload.                   
+                 Follow the format of the output later: 
+                 7. Conclusion: \n\n
+                    - (1):xxx;\n                     
+                    - (2):Innovation point: xxx; Performance: xxx; Workload: xxx;\n                      
+                 
+                 Be sure to use {} answers (proper nouns need to be marked in English), statements as concise and academic as possible, do not repeat the content of the previous <summary>, the value of the use of the original numbers, be sure to strictly follow the format, the corresponding content output to xxx, in accordance with \n line feed, ....... means fill in according to the actual requirements, if not, you can not write.               
+                 """.format(
+                    self.language, self.language
+                ),
+            },
+        ]
+        """
+        response = openai.chat.completions.create(
+            model="gpt-3.5-turbo",
+            # prompt需要用英语替换，少占用token。
+            messages=messages,
+        )
+        """
+        response = self.llm.create_chat_completion(
+        messages=messages,
+        max_tokens=1000,
+        stream=False
+        )
+        result = ""
+        for choice in response["choices"]:
+            result += choice["message"]["content"]
+        #print("method_result:\n", result)
+        print(
+            "prompt_token_used:",
+            response["usage"]["prompt_tokens"],
+            "completion_token_used:",
+            response["usage"]["completion_tokens"],
+            "total_token_used:",
+            response["usage"]["total_tokens"],
+        )
+        return result
+
+    @tenacity.retry(
+        wait=tenacity.wait_exponential(multiplier=1, min=4, max=10),
+        stop=tenacity.stop_after_attempt(5),
+        reraise=True,
+    )
+    def chat_method(self, text, method_prompt_token=800):
+        openai.api_key = self.chat_api_list[self.cur_api]
+        self.cur_api += 1
+        self.cur_api = (
+            0 if self.cur_api >= len(self.chat_api_list) - 1 else self.cur_api
+        )
+        text_token = len(self.encoding.encode(text))
+        clip_text_index = int(
+            len(text) * (self.max_token_num - method_prompt_token) / text_token
+        )
+        clip_text = text[:clip_text_index]
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a researcher in the field of ["
+                + self.key_word
+                + "] who is good at summarizing papers using concise statements",
+            },
+            # chatgpt 角色
+            {
+                "role": "assistant",
+                "content": "This is the <summary> and <Method> part of an English document, where <summary> you have summarized, but the <Methods> part, I need your help to read and summarize the following questions."
+                + clip_text,
+            },
+            # 背景知识
+            {
+                "role": "user",
+                "content": """                 
+                 6. Describe in detail the methodological idea of this article. Be sure to use {} answers (proper nouns need to be marked in English). For example, its steps are.
+                    - (1):...
+                    - (2):...
+                    - (3):...
+                 Follow the format of the output that follows: 
+                 6. Methods: \n\n
+                    - (1):xxx;\n 
+                    - (2):xxx;\n 
+                    - (3):xxx;\n  
+                 Be sure to use {} answers (proper nouns need to be marked in English), statements as concise and academic as possible, do not repeat the content of the previous <summary>, the value of the use of the original numbers, be sure to strictly follow the format, the corresponding content output to xxx, in accordance with \n line feed, if not, you can not write.
+                 """.format(
+                    self.language, self.language
+                ),
+            },
+        ]
+        """
+        response = openai.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=messages,
+        )
+        """
+        response = self.llm.create_chat_completion(
+        messages=messages,
+        max_tokens=1000,
+        stream=False
+        )
+        result = ""
+        for choice in response["choices"]:
+            result += choice["message"]["content"]
+        #print("method_result:\n", result)
+        print(
+            "prompt_token_used:",
+            response["usage"]["prompt_tokens"],
+            "completion_token_used:",
+            response["usage"]["completion_tokens"],
+            "total_token_used:",
+            response["usage"]["total_tokens"],
+        )
+        return result
+
+    @tenacity.retry(
+        wait=tenacity.wait_exponential(multiplier=1, min=4, max=10),
+        stop=tenacity.stop_after_attempt(5),
+        reraise=True,
+    )
     def chat_summary(self, text, summary_prompt_token=1100):
         openai.api_key = self.chat_api_list[self.cur_api]
         self.cur_api += 1
@@ -569,23 +831,21 @@ class Reader:
             {
                 "role": "user",
                 "content": """                 
-                 1. Mark the title of the paper
-                 2. list all the authors' names (use English)
-                 3. mark the first author's affiliation (output {} translation only)                 
-                 4. mark the keywords of this article (use English)
-                 5. link to the paper, Github code link (if available, fill in Github:None if not)
-                 6. summarize according to the following four points.Be sure to use {} answers (proper nouns need to be marked in English)
+                 1. list all the authors' names (use English)
+                 2. mark the first author's affiliation (output {} translation only)                 
+                 3. mark the keywords of this article (use English)
+                 4. link to the paper, Github code link (if available, fill in Github:None if not)
+                 5. summarize according to the following four points.Be sure to use {} answers (proper nouns need to be marked in English)
                     - (1):What is the research background of this article?
                     - (2):What are the past methods? What are the problems with them? Is the approach well motivated?
                     - (3):What is the research methodology proposed in this paper?
                     - (4):On what task and what performance is achieved by the methods in this paper? Can the performance support their goals?
                  Follow the format of the output that follows:                  
-                 1. Title: xxx\n\n
-                 2. Authors: xxx\n\n
-                 3. Affiliation: xxx\n\n                 
-                 4. Keywords: xxx\n\n   
-                 5. Urls: xxx or xxx , xxx \n\n      
-                 6. Summary: \n\n
+                 1. Authors: xxx\n\n
+                 2. Affiliation: xxx\n\n                 
+                 3. Keywords: xxx\n\n   
+                 4. Urls: xxx or xxx , xxx \n\n      
+                 5. Summary: \n\n
                     - (1):xxx;\n 
                     - (2):xxx;\n 
                     - (3):xxx;\n  
@@ -596,6 +856,14 @@ class Reader:
                 ),
             },
         ]
+        openai.base_url = "https://free.gpt.ge/v1/"
+        openai.default_headers = {"x-foo": "true"}
+        """
+        response = openai.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=messages,
+        )
+        """
         response = self.llm.create_chat_completion(
         messages=messages,
         max_tokens=1000,
@@ -605,7 +873,7 @@ class Reader:
         for choice in response["choices"]:
             result += choice["message"]["content"]
         #print("method_result:\n", result)
-        result = self.translate_text(result)
+        #result = self.translate_text(result)
         print(
             "prompt_token_used:",
             response["usage"]["prompt_tokens"],
