@@ -5,7 +5,8 @@ from utils import Paper_query
 from summary_core.arxiv_search import chat_arxiv_main
 from summary_core.arxiv_search import Reader
 from llama_cpp import Llama
-model_path = "your model path"# gguf model is all your need
+from convert_html import clean_summary, convert_html
+model_path = ""# gguf model is all your need
 def trans_dict_into_text(paper_dict):
     text = ""
     for paper in paper_dict:
@@ -18,7 +19,7 @@ def trans_dict_into_text(paper_dict):
 llm = Llama(
     model_path=model_path,
     n_gpu_layers=-1,  # 根据需要卸载到 GPU
-    n_ctx=16384,       # 设置上下文窗口大小
+    n_ctx=8192,       # 设置上下文窗口大小
     verbose=False,    # 禁用详细日志输出
 )
 
@@ -31,7 +32,7 @@ def main(cfg: DictConfig):
     mail_user = cfg.mail_user#中转邮箱的账号
     mail_pwd = cfg.mail_pwd#中转邮箱的密码
     receivers = cfg.receivers#目标递送邮箱的账号
-    
+    receivers = list(receivers)
     mail = connect_to_email(server=server, account=account, password=password)
     email_ids = fetch_emails(mail)
     for email_id in email_ids[-5:]:
@@ -59,7 +60,9 @@ def main(cfg: DictConfig):
                               "result":result}
                              )
     output = trans_dict_into_text(arxiv_summary)
-    send_email('smtp.163.com', mail_user,receivers,mail_pwd,output)
+    output = convert_html(clean_summary(output))
+    send_email('smtp.163.com', mail_user,receivers,mail_pwd,html_file_path=output)
+    
     print(output)
 if __name__ == "__main__":
     main()
