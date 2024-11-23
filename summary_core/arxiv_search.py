@@ -456,14 +456,14 @@ class Reader:
     def get_arxiv_web(self, datas):
         
         paper_list = []
-        url = datas["link"]  # the link of the pdf document
+        url = datas["link"]# the link of the pdf document
         if url == None:
             return paper_list
         title = datas["title"]
         filename = self.try_download_pdf(url, title)
         paper = Paper(
                 path=filename,
-                url=datas["link"] ,
+                url=datas["link"][:32] ,
                 title=title,
             )
         paper_list.append(paper)
@@ -659,11 +659,7 @@ class Reader:
         reraise=True,
     )
     def chat_conclusion(self, text, conclusion_prompt_token=800):
-        openai.api_key = self.chat_api_list[self.cur_api]
-        self.cur_api += 1
-        self.cur_api = (
-            0 if self.cur_api >= len(self.chat_api_list) - 1 else self.cur_api
-        )
+       
         text_token = len(self.encoding.encode(text))
         clip_text_index = int(
             len(text) * (self.max_token_num - conclusion_prompt_token) / text_token
@@ -733,11 +729,7 @@ class Reader:
         reraise=True,
     )
     def chat_method(self, text, method_prompt_token=800):
-        openai.api_key = self.chat_api_list[self.cur_api]
-        self.cur_api += 1
-        self.cur_api = (
-            0 if self.cur_api >= len(self.chat_api_list) - 1 else self.cur_api
-        )
+        
         text_token = len(self.encoding.encode(text))
         clip_text_index = int(
             len(text) * (self.max_token_num - method_prompt_token) / text_token
@@ -806,11 +798,6 @@ class Reader:
         reraise=True,
     )
     def chat_summary(self, text, summary_prompt_token=1100):
-        openai.api_key = self.chat_api_list[self.cur_api]
-        self.cur_api += 1
-        self.cur_api = (
-            0 if self.cur_api >= len(self.chat_api_list) - 1 else self.cur_api
-        )
         text_token = len(self.encoding.encode(text))
         clip_text_index = int(
             len(text) * (self.max_token_num - summary_prompt_token) / text_token
