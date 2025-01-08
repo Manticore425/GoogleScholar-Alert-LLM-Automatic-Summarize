@@ -14,7 +14,7 @@ def main():
     print("按 Ctrl + C 退出程序\n")  
   
     # 设置定时任务  
-    schedule.every().day.at("9:40").do(job)  
+    schedule.every().day.at("11:00").do(job)  
       
     try:  
         # 循环执行任务  

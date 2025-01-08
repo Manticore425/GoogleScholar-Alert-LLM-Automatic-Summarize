@@ -6,7 +6,7 @@ from summary_core.arxiv_search import chat_arxiv_main
 from summary_core.arxiv_search import Reader
 from llama_cpp import Llama
 from convert_html import clean_summary, convert_html
-model_path = ""# gguf model is all your need
+model_path = "" # gguf model is all you need
 def trans_dict_into_text(paper_dict):
     text = ""
     for paper in paper_dict:
@@ -19,11 +19,11 @@ def trans_dict_into_text(paper_dict):
 llm = Llama(
     model_path=model_path,
     n_gpu_layers=-1,  # 根据需要卸载到 GPU
-    n_ctx=8192,       # 设置上下文窗口大小
+    n_ctx=32768,       # 设置上下文窗口大小
     verbose=False,    # 禁用详细日志输出
 )
 
-@hydra.main(config_path="config", config_name="mail.yaml")
+@hydra.main(config_path="config", config_name="mail.yaml", version_base=None)
 def main(cfg: DictConfig):
     arxiv_summary = []
     server = cfg.mail_server#接受邮箱的服务器
@@ -39,30 +39,31 @@ def main(cfg: DictConfig):
         paper_titles = read_email(mail, email_id)
         if paper_titles != []:
             break
-    
-
-   
-    for paper_title in paper_titles:
-        query = Paper_query(paper_title["title"])
-        key_word = "deep learning"
-        reader1 = Reader(key_word,"",llm=llm,args=query)
-        reader1.key_word = key_word
-        reader1.query = paper_title["title"]
-        reader1.show_info()
-        paper_list = reader1.get_arxiv_web(
-        paper_title
-        )
-        result = reader1.summary_with_chat(paper_list)
-        #result = translater.translate_text(result)
-        print(result)
-        arxiv_summary.append({"title":paper_title["title"],
-                              
-                              "result":result}
-                             )
-    output = trans_dict_into_text(arxiv_summary)
-    output = convert_html(clean_summary(output))
-    send_email('smtp.163.com', mail_user,receivers,mail_pwd,html_file_path=output)
-    
-    print(output)
+    mail.logout()
+    if len(paper_titles) > 0:
+        for paper_title in paper_titles:
+            query = Paper_query(paper_title["title"])
+            key_word = "deep learning"
+            reader1 = Reader(key_word,"",llm=llm,args=query)
+            reader1.key_word = key_word
+            reader1.query = paper_title["title"]
+            reader1.show_info()
+            paper_list = reader1.get_arxiv_web(
+            paper_title
+            )
+            result = reader1.summary_with_chat(paper_list)
+            #result = translater.translate_text(result)
+            print(result)
+            arxiv_summary.append({"title":paper_title["title"],
+                                  "result":result})
+        
+        output = trans_dict_into_text(arxiv_summary)
+        output = convert_html(clean_summary(output))
+        send_email('smtp.163.com', mail_user, receivers, mail_pwd, html_file_path=output)
+        
+        print(output)
+    else:
+        print("No Scholar emails, exit!")
+        
 if __name__ == "__main__":
     main()
